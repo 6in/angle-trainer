@@ -96,16 +96,17 @@
                 <div id="overlap-ground" class="absolute w-full h-[1px] bg-slate-600/50 transform"></div>
                 
                 <!-- Cue Ball (Fixed Center) z-20 -->
-                <div id="overlap-cb" class="absolute rounded-full border border-slate-400 opacity-90 z-20 shadow-lg">
+                <!-- border-[3px] に変更して太くしました -->
+                <div id="overlap-cb" class="absolute rounded-full border-[3px] border-slate-400 opacity-90 z-20 shadow-lg">
                     <div class="absolute top-1/2 left-1/2 w-1 h-1 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-70"></div>
                 </div>
 
                 <!-- Grid Layer (Moves with OB, extends outside) z-15 -->
-                <!-- overflow-visibleにして線が外に出るようにする -->
                 <div id="overlap-grid-layer" class="absolute z-[15] pointer-events-none overflow-visible"></div>
 
                 <!-- Object Ball (Moving) z-10 -->
-                <div id="overlap-ob" class="absolute rounded-full border border-red-900 shadow-inner z-10"></div>
+                <!-- OBも一貫性のため border-[3px] に変更 -->
+                <div id="overlap-ob" class="absolute rounded-full border-[3px] border-red-900 shadow-inner z-10"></div>
             </div>
 
             <!-- Angle Text -->
