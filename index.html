@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Billiards Angle Trainer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            overscroll-behavior: none; /* スマホでのプリングリフレッシュ等を防止 */
+            user-select: none;         /* テキスト選択防止 */
+            -webkit-user-select: none;
+            touch-action: none;        /* ブラウザのデフォルトタッチ動作を無効化 */
+        }
+        /* オーバーラップビューのアニメーション用 */
+        .overlap-transition {
+            transition: width 0.2s, height 0.2s, border-color 0.2s;
+        }
+        /* グリッドライン用 */
+        .grid-line {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-slate-900 text-white font-sans overflow-hidden">
+
+    <!-- Header -->
+    <div class="p-3 bg-slate-800 shadow-md flex items-center justify-between z-20 shrink-0 relative">
+        <h1 class="text-base font-bold flex items-center gap-2">
+            <i data-lucide="target" class="text-red-400 w-5 h-5"></i>
+            Angle Trainer
+        </h1>
+        
+        <div class="flex items-center gap-2">
+            <div class="flex bg-slate-700 rounded-lg p-1">
+                <button id="btn-mode-free" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all bg-blue-600 text-white shadow">
+                    <i data-lucide="shuffle" class="rotate-90 w-3 h-3"></i> Free
+                </button>
+                <button id="btn-mode-random" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all text-slate-400">
+                    <i data-lucide="refresh-cw" class="w-3 h-3"></i> Random
+                </button>
+            </div>
+            
+            <button id="btn-fullscreen" class="bg-slate-700 text-slate-300 hover:text-white p-1.5 rounded-md" title="全画面表示">
+                <i data-lucide="maximize" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Area -->
+    <div id="container" class="flex-1 relative touch-none bg-slate-900 overflow-hidden">
+        <canvas id="game-canvas" class="block w-full h-full cursor-pointer touch-none"></canvas>
+        
+        <!-- Overlap View (Draggable Window) -->
+        <div id="overlap-view" class="bg-slate-800/90 rounded-lg border border-slate-600 shadow-xl backdrop-blur-sm overflow-hidden z-50 absolute cursor-move hover:border-slate-400 overlap-transition" 
+             style="width: 240px; height: 140px; display: none;"> <!-- 初期は非表示、JSで位置決定後に表示 -->
+            
+            <!-- Controls / Icons -->
+            <div class="absolute top-1 right-1 text-slate-400 pointer-events-none icon-move">
+                <i data-lucide="move" class="w-3 h-3"></i>
+            </div>
+            <div class="absolute top-1 right-1 text-slate-400 cursor-pointer icon-maximize hidden">
+                <i data-lucide="maximize-2" class="w-3 h-3"></i>
+            </div>
+
+            <!-- Title -->
+            <div id="overlap-title" class="text-[10px] text-slate-300 mb-1 flex items-center gap-1 justify-center h-4 mt-1 select-none pointer-events-none">
+                <i data-lucide="eye" class="w-3 h-3"></i> <span>厚みイメージ</span>
+            </div>
+
+            <!-- Visualization Area -->
+            <div id="overlap-visual" class="relative w-full bg-slate-700/50 rounded overflow-hidden pointer-events-none mx-auto">
+                <!-- Center Line -->
+                <div class="absolute top-0 bottom-0 w-[1px] bg-slate-500/50 left-1/2 transform -translate-x-1/2 z-0"></div>
+                <!-- Ground Line -->
+                <div id="overlap-ground" class="absolute w-full h-[1px] bg-slate-600/50 transform"></div>
+                
+                <!-- Cue Ball (Fixed Center) -->
+                <div id="overlap-cb" class="absolute rounded-full border border-slate-400 opacity-90 z-20 shadow-lg">
+                    <div class="absolute top-1/2 left-1/2 w-1 h-1 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-70"></div>
+                </div>
+
+                <!-- Object Ball (Moving) -->
+                <div id="overlap-ob" class="absolute rounded-full border border-red-900 shadow-inner flex z-10">
+                    <!-- Grid Lines (Inserted by JS when expanded) -->
+                </div>
+            </div>
+
+            <!-- Angle Text -->
+            <div id="overlap-text" class="text-center mt-1 pb-1 text-slate-400 font-mono pointer-events-none select-none text-sm">
+                0.0°
+            </div>
+        </div>
+
+        <!-- Overlap Modal Overlay (For Expanded View) -->
+        <div id="overlap-modal" class="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+            <!-- Expanded content will be cloned here or handled by logic -->
+            <div class="text-center mt-4 text-sm text-white/80 animate-pulse absolute bottom-10 w-full pointer-events-none">
+                Tap anywhere to close
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="absolute top-1 left-2 pointer-events-none text-[10px] text-white/40 font-mono select-none">
+            Select Pocket ▲
+        </div>
+
+        <!-- Next Button (Random Mode) -->
+        <button id="btn-next" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-40 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white px-8 py-3 rounded-full shadow-xl font-bold transition-all active:scale-95 hidden">
+            Next <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+        </button>
+    </div>
+
+    <!-- Footer -->
+    <div class="bg-slate-800 p-2 text-xs text-slate-400 border-t border-slate-700 shrink-0 z-20 relative">
+        <div class="flex items-center justify-center gap-2">
+            <i data-lucide="info" class="text-blue-400 w-3 h-3"></i>
+            <span id="footer-text" class="truncate">ポケット選択可。ドラッグ調整。厚みタップで拡大。</span>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTS ---
+        const BALL_RADIUS = 20;
+        const POCKET_RADIUS = 36;
+        const COLORS = {
+            FELT: '#1a472a',
+            POCKET: '#111111',
+            OB: '#ef4444',
+            CB: '#ffffff',
+            GHOST: 'rgba(255, 255, 255, 0.4)',
+            AIM_LINE: 'rgba(255, 255, 0, 0.8)',
+            TRIANGLE: 'rgba(255, 215, 0, 0.15)'
+        };
+
+        // --- STATE ---
+        const state = {
+            width: 0,
+            height: 0,
+            mode: 'free', // 'free' | 'random'
+            showAnswer: false,
+            isOverlapExpanded: false,
+            targetPocketIndex: 1, // 0:Left, 1:Center, 2:Right
+            ob: { x: 150, y: 100 },
+            cb: { x: 150, y: 300 },
+            
+            // Interaction
+            dragging: null, // 'ob', 'cb', 'overlap', 'tap_check'
+            dragStart: { x: 0, y: 0 },
+            dragOffset: { x: 0, y: 0 },
+            
+            // Overlap Window Position
+            overlapPos: { x: -1, y: -1 }, // -1 means uninitialized
+            overlapDragStart: { x: 0, y: 0 },
+            overlapDragOffset: { x: 0, y: 0 }
+        };
+
+        // --- DOM ELEMENTS ---
+        const els = {
+            container: document.getElementById('container'),
+            canvas: document.getElementById('game-canvas'),
+            btnModeFree: document.getElementById('btn-mode-free'),
+            btnModeRandom: document.getElementById('btn-mode-random'),
+            btnFullscreen: document.getElementById('btn-fullscreen'),
+            btnNext: document.getElementById('btn-next'),
+            overlapView: document.getElementById('overlap-view'),
+            overlapModal: document.getElementById('overlap-modal'),
+            overlapVisual: document.getElementById('overlap-visual'),
+            overlapCb: document.getElementById('overlap-cb'),
+            overlapOb: document.getElementById('overlap-ob'),
+            overlapText: document.getElementById('overlap-text'),
+            overlapGround: document.getElementById('overlap-ground'),
+            overlapTitle: document.getElementById('overlap-title'),
+            iconMove: document.querySelector('.icon-move'),
+            iconMaximize: document.querySelector('.icon-maximize'),
+            footerText: document.getElementById('footer-text'),
+            html: document.documentElement
+        };
+
+        const ctx = els.canvas.getContext('2d');
+
+        // --- GEOMETRY HELPERS ---
+        const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+        const getPockets = () => {
+            const w = state.width;
+            return [
+                { x: 0, y: 0, label: 'L' },
+                { x: w / 2, y: 0, label: 'C' },
+                { x: w, y: 0, label: 'R' }
+            ];
+        };
+
+        const getCurrentPocket = () => getPockets()[state.targetPocketIndex] || getPockets()[1];
+
+        const getGhostBallPos = (pocket, objectBall) => {
+            const vx = pocket.x - objectBall.x;
+            const vy = pocket.y - objectBall.y;
+            const mag = Math.sqrt(vx * vx + vy * vy);
+            if (mag === 0) return { ...objectBall };
+            const ux = vx / mag;
+            const uy = vy / mag;
+            return {
+                x: objectBall.x - ux * (BALL_RADIUS * 2),
+                y: objectBall.y - uy * (BALL_RADIUS * 2)
+            };
+        };
+
+        const calculateCutAngle = (pocket, objectBall, cueBall) => {
+            const gb = getGhostBallPos(pocket, objectBall);
+            const vRef = { x: pocket.x - gb.x, y: pocket.y - gb.y };
+            const vAim = { x: gb.x - cueBall.x, y: gb.y - cueBall.y };
+            
+            const dot = vRef.x * vAim.x + vRef.y * vAim.y;
+            const magRef = Math.sqrt(vRef.x * vRef.x + vRef.y * vRef.y);
+            const magAim = Math.sqrt(vAim.x * vAim.x + vAim.y * vAim.y);
+            
+            if (magRef === 0 || magAim === 0) return 0;
+            
+            const cosTheta = dot / (magRef * magAim);
+            const clampedCos = Math.max(-1, Math.min(1, cosTheta));
+            return (Math.acos(clampedCos) * 180) / Math.PI;
+        };
+
+        const getProjectionPoint = (pocket, gb, cueBall) => {
+            const ax = gb.x; const ay = gb.y;
+            const bx = pocket.x; const by = pocket.y;
+            const cx = cueBall.x; const cy = cueBall.y;
+
+            const abx = bx - ax; const aby = by - ay;
+            const acx = cx - ax; const acy = cy - ay;
+
+            const t = (acx * abx + acy * aby) / (abx * abx + aby * aby);
+            return { x: ax + t * abx, y: ay + t * aby };
+        };
+
+        // --- CORE LOGIC ---
+
+        const resize = () => {
+            const rect = els.container.getBoundingClientRect();
+            state.width = rect.width;
+            state.height = rect.height;
+            els.canvas.width = rect.width;
+            els.canvas.height = rect.height;
+
+            // Clamp positions to new size
+            const margin = BALL_RADIUS + 5;
+            state.ob.x = Math.max(margin, Math.min(state.width - margin, state.ob.x));
+            state.ob.y = Math.max(margin, Math.min(state.height - margin, state.ob.y));
+            state.cb.x = Math.max(margin, Math.min(state.width - margin, state.cb.x));
+            state.cb.y = Math.max(margin, Math.min(state.height - margin, state.cb.y));
+
+            // Init Overlap Position if needed
+            if (state.overlapPos.x === -1) {
+                const winW = 240;
+                const winH = 140;
+                state.overlapPos.x = Math.max(10, state.width - winW - 20);
+                state.overlapPos.y = Math.max(10, state.height - winH - 60);
+                els.overlapView.style.display = 'block';
+            } else {
+                // Clamp overlap window
+                const winW = 240;
+                const winH = 140;
+                const m = 10;
+                if (state.overlapPos.x + winW > state.width) state.overlapPos.x = Math.max(m, state.width - winW - m);
+                if (state.overlapPos.y + winH > state.height) state.overlapPos.y = Math.max(m, state.height - winH - m);
+            }
+
+            draw();
+            updateUI();
+        };
+
+        const randomizePositions = () => {
+            const w = state.width;
+            const h = state.height;
+            const margin = 50;
+            const pocket = getCurrentPocket();
+            
+            let valid = false;
+            let attempts = 0;
+            let newOb, newCb;
+
+            while (!valid && attempts < 200) {
+                newOb = {
+                    x: margin + Math.random() * (w - margin * 2),
+                    y: margin + 60 + Math.random() * (h - margin * 2 - 60)
+                };
+                newCb = {
+                    x: margin + Math.random() * (w - margin * 2),
+                    y: margin + 60 + Math.random() * (h - margin * 2 - 60)
+                };
+
+                const d_p_ob = dist(pocket, newOb);
+                const d_p_cb = dist(pocket, newCb);
+                const d_ob_cb = dist(newOb, newCb);
+                const angle = calculateCutAngle(pocket, newOb, newCb);
+
+                if (d_ob_cb > BALL_RADIUS * 4 && angle < 85 && d_p_cb > d_p_ob) {
+                    valid = true;
+                }
+                attempts++;
+            }
+
+            if (valid) {
+                state.ob = newOb;
+                state.cb = newCb;
+                state.showAnswer = false;
+                state.isOverlapExpanded = false;
+                draw();
+                updateUI();
+            }
+        };
+
+        // --- DRAWING ---
+
+        const draw = () => {
+            if (state.width === 0) return;
+
+            // Clear & Felt
+            ctx.clearRect(0, 0, state.width, state.height);
+            ctx.fillStyle = COLORS.FELT;
+            ctx.fillRect(0, 0, state.width, state.height);
+
+            const pocket = getCurrentPocket();
+            const gb = getGhostBallPos(pocket, state.ob);
+            const angle = calculateCutAngle(pocket, state.ob, state.cb);
+            const projPoint = getProjectionPoint(pocket, gb, state.cb);
+
+            // Draw Pockets
+            const pockets = getPockets();
+            pockets.forEach((p, idx) => {
+                const isTarget = idx === state.targetPocketIndex;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = COLORS.POCKET;
+                ctx.fill();
+
+                if (isTarget) {
+                    ctx.strokeStyle = COLORS.OB;
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                    ctx.shadowColor = COLORS.OB;
+                    ctx.shadowBlur = 15;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0; // reset
+                } else {
+                    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            });
+
+            // Draw Helpers (Always shown now, except Angle Text value in Random mode)
+            // 1. Shoot Line
+            const vGP = { x: pocket.x - gb.x, y: pocket.y - gb.y };
+            const magGP = Math.sqrt(vGP.x * vGP.x + vGP.y * vGP.y);
+            // Unit vector
+            const uGP = magGP === 0 ? {x:0, y:0} : { x: vGP.x / magGP, y: vGP.y / magGP };
+
+            ctx.beginPath();
+            ctx.moveTo(gb.x - uGP.x * 3000, gb.y - uGP.y * 3000);
+            ctx.lineTo(pocket.x, pocket.y);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 2. Triangle
+            if (angle < 90) {
+                ctx.beginPath();
+                ctx.moveTo(gb.x, gb.y);
+                ctx.lineTo(state.cb.x, state.cb.y);
+                ctx.lineTo(projPoint.x, projPoint.y);
+                ctx.closePath();
+                ctx.fillStyle = COLORS.TRIANGLE;
+                ctx.fill();
+
+                // Right Angle Dot
+                ctx.beginPath();
+                ctx.arc(projPoint.x, projPoint.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#fbbf24';
+                ctx.fill();
+
+                // Perpendicular Line
+                ctx.beginPath();
+                ctx.moveTo(state.cb.x, state.cb.y);
+                ctx.lineTo(projPoint.x, projPoint.y);
+                ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // 3. Aim Line (CB -> GB)
+            ctx.beginPath();
+            ctx.moveTo(state.cb.x, state.cb.y);
+            ctx.lineTo(gb.x, gb.y);
+            ctx.strokeStyle = COLORS.AIM_LINE;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Draw Balls
+            // GB
+            ctx.beginPath();
+            ctx.arc(gb.x, gb.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.GHOST;
+            ctx.setLineDash([4, 2]);
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('GB', gb.x, gb.y - BALL_RADIUS - 4);
+
+            // OB
+            ctx.beginPath();
+            ctx.arc(state.ob.x, state.ob.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.OB;
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 3;
+            ctx.fill();
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 12px Arial';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('OB', state.ob.x, state.ob.y);
+
+            // CB
+            ctx.beginPath();
+            ctx.arc(state.cb.x, state.cb.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.CB;
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 3;
+            ctx.fill();
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = 'black';
+            ctx.fillText('CB', state.cb.x, state.cb.y);
+
+            // Angle Text on Canvas
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            
+            if (state.mode === 'random' && !state.showAnswer) {
+                ctx.fillText("? °", 20, state.height - 20);
+            } else {
+                ctx.fillText(`${angle.toFixed(1)}°`, 20, state.height - 20);
+            }
+
+            // Update Overlap View Content (DOM)
+            updateOverlapViewDOM(angle);
+        };
+
+        const updateOverlapViewDOM = (angle) => {
+            const expanded = state.isOverlapExpanded;
+            const pocket = getCurrentPocket();
+            
+            // View scale logic
+            const viewScale = expanded ? 4.0 : 2.5;
+            const r = BALL_RADIUS * viewScale;
+            
+            // Container size
+            const containerWidth = expanded ? 320 : 240;
+            const containerHeight = expanded ? 200 : 140;
+            const viewportHeight = containerHeight - 30;
+            
+            // Positioning vars
+            const centerX = (containerWidth - 16) / 2; // -16 for padding
+            const centerY = viewportHeight / 2;
+            const angleRad = (angle * Math.PI) / 180;
+            const offset = 2 * BALL_RADIUS * Math.sin(angleRad);
+
+            // Direction Logic
+            // Cross product to see if pocket is left or right of OB->CB line
+            const v1 = { x: pocket.x - state.ob.x, y: pocket.y - state.ob.y };
+            const v2 = { x: state.cb.x - state.ob.x, y: state.cb.y - state.ob.y };
+            const cross = v1.x * v2.y - v1.y * v2.x;
+            const direction = cross > 0 ? -1 : 1; // Adjust direction
+
+            // Apply styles to elements
+            const visual = els.overlapVisual;
+            visual.style.height = `${viewportHeight}px`;
+
+            const ground = els.overlapGround;
+            ground.style.top = `${centerY + r}px`;
+
+            const domCb = els.overlapCb;
+            domCb.style.width = `${r * 2}px`;
+            domCb.style.height = `${r * 2}px`;
+            domCb.style.left = `${centerX - r}px`;
+            domCb.style.top = `${centerY - r}px`;
+            domCb.style.opacity = expanded ? '0.5' : '0.9';
+
+            const domOb = els.overlapOb;
+            domOb.style.width = `${r * 2}px`;
+            domOb.style.height = `${r * 2}px`;
+            domOb.style.top = `${centerY - r}px`;
+            // Move OB based on offset
+            const moveX = offset * viewScale * direction;
+            domOb.style.left = `${centerX - r - moveX}px`;
+
+            // Grid lines
+            domOb.innerHTML = '';
+            if (expanded) {
+                // Generate grid lines
+                for (let i = 1; i < 8; i++) {
+                    const line = document.createElement('div');
+                    line.className = 'grid-line';
+                    line.style.left = `${i * 12.5}%`;
+                    domOb.appendChild(line);
+                }
+                const centerLine = document.createElement('div');
+                centerLine.style.position = 'absolute';
+                centerLine.style.top = '0'; centerLine.style.bottom = '0';
+                centerLine.style.left = '50%'; centerLine.style.width = '1px';
+                centerLine.style.backgroundColor = 'rgba(255,255,255,0.6)';
+                centerLine.style.transform = 'translateX(-50%)';
+                domOb.appendChild(centerLine);
+            }
+
+            // Text
+            const text = els.overlapText;
+            if (state.mode === 'random' && !state.showAnswer) {
+                text.textContent = "? °";
+            } else {
+                text.textContent = `${angle.toFixed(1)}°`;
+            }
+            text.style.fontSize = expanded ? '1.125rem' : '0.875rem';
+            text.style.fontWeight = expanded ? 'bold' : 'normal';
+        };
+
+        const updateUI = () => {
+            // Mode Buttons
+            if (state.mode === 'free') {
+                els.btnModeFree.className = "px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all bg-blue-600 text-white shadow";
+                els.btnModeRandom.className = "px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all text-slate-400 hover:text-white";
+                els.btnNext.classList.add('hidden');
+                els.footerText.textContent = "ポケット選択可。ドラッグ調整。厚みタップで拡大。";
+            } else {
+                els.btnModeRandom.className = "px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all bg-purple-600 text-white shadow";
+                els.btnModeFree.className = "px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all text-slate-400 hover:text-white";
+                els.footerText.textContent = "タップで答え合わせ。厚み拡大で詳細確認。";
+                
+                if (state.showAnswer) {
+                    els.btnNext.classList.remove('hidden');
+                } else {
+                    els.btnNext.classList.add('hidden');
+                }
+            }
+
+            // Overlap Window State (Expanded vs Minimized)
+            const ov = els.overlapView;
+            if (state.isOverlapExpanded) {
+                // Moved to Modal
+                els.overlapModal.classList.remove('hidden');
+                // We clone the internal content to the modal to reuse render logic? 
+                // Or simply re-style the main window to be fixed centered?
+                // Re-styling the main window to be 'modal-like' is easier but might break drag logic.
+                // Let's hide the draggable one and show a separate expanded render in modal?
+                // Actually, let's just use one DOM element and change its parenting/style.
+                // Simplest approach: Use the existing div, change class to Fixed Center.
+                
+                ov.style.position = 'fixed';
+                ov.style.top = '50%';
+                ov.style.left = '50%';
+                ov.style.transform = 'translate(-50%, -50%)';
+                ov.style.zIndex = '101';
+                ov.style.width = '320px';
+                ov.style.height = '200px';
+                ov.style.cursor = 'default';
+                
+                els.overlapModal.classList.remove('hidden');
+                els.iconMove.classList.add('hidden');
+                els.iconMaximize.classList.remove('hidden'); // acts as close
+                els.overlapTitle.innerHTML = '<i data-lucide="eye" class="w-3 h-3"></i> 厚み詳細 (Tap to Close)';
+                lucide.createIcons();
+
+            } else {
+                // Minimized
+                els.overlapModal.classList.add('hidden');
+                ov.style.position = 'absolute';
+                ov.style.transform = 'none';
+                ov.style.zIndex = '50';
+                ov.style.width = '240px';
+                ov.style.height = '140px';
+                ov.style.left = `${state.overlapPos.x}px`;
+                ov.style.top = `${state.overlapPos.y}px`;
+                ov.style.cursor = 'move';
+
+                els.iconMove.classList.remove('hidden');
+                els.iconMaximize.classList.add('hidden');
+                els.overlapTitle.innerHTML = '<i data-lucide="eye" class="w-3 h-3"></i> 厚みイメージ';
+                lucide.createIcons();
+            }
+        };
+
+        // --- EVENT HANDLERS ---
+
+        // Pointer Events for Canvas (Dragging Balls)
+        els.canvas.addEventListener('pointerdown', (e) => {
+            if (state.isOverlapExpanded) return;
+            const rect = els.canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Check Pockets
+            const pockets = getPockets();
+            for (let i = 0; i < pockets.length; i++) {
+                if (dist({x, y}, pockets[i]) < POCKET_RADIUS * 1.5) {
+                    state.targetPocketIndex = i;
+                    draw();
+                    return;
+                }
+            }
+
+            // Check Balls
+            const hitR = BALL_RADIUS * 2.5;
+            
+            // In Random mode, tap anywhere reveals answer
+            if (state.mode === 'random') {
+                state.dragging = 'tap_check';
+                state.dragStart = { x: e.clientX, y: e.clientY };
+                return;
+            }
+
+            if (dist({x, y}, state.ob) < hitR) {
+                state.dragging = 'ob';
+                state.dragOffset = { x: state.ob.x - x, y: state.ob.y - y };
+                els.canvas.setPointerCapture(e.pointerId);
+            } else if (dist({x, y}, state.cb) < hitR) {
+                state.dragging = 'cb';
+                state.dragOffset = { x: state.cb.x - x, y: state.cb.y - y };
+                els.canvas.setPointerCapture(e.pointerId);
+            }
+        });
+
+        els.canvas.addEventListener('pointermove', (e) => {
+            if (!state.dragging) return;
+            
+            if (state.dragging === 'tap_check') return;
+
+            const rect = els.canvas.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            let y = e.clientY - rect.top;
+            
+            const buffer = BALL_RADIUS + 5;
+            let tx = x + state.dragOffset.x;
+            let ty = y + state.dragOffset.y;
+            
+            tx = Math.max(buffer, Math.min(state.width - buffer, tx));
+            ty = Math.max(buffer, Math.min(state.height - buffer, ty));
+
+            if (state.dragging === 'ob') state.ob = { x: tx, y: ty };
+            else if (state.dragging === 'cb') state.cb = { x: tx, y: ty };
+            
+            draw();
+        });
+
+        els.canvas.addEventListener('pointerup', (e) => {
+            if (state.dragging === 'tap_check') {
+                if (state.mode === 'random' && !state.showAnswer) {
+                    if (dist({x: e.clientX, y: e.clientY}, state.dragStart) < 10) {
+                        state.showAnswer = true;
+                        updateUI();
+                        draw();
+                    }
+                }
+            }
+            state.dragging = null;
+            els.canvas.releasePointerCapture(e.pointerId);
+        });
+
+        // Pointer Events for Overlap View (Dragging Window)
+        els.overlapView.addEventListener('pointerdown', (e) => {
+            if (state.isOverlapExpanded) {
+                // If expanded, tapping it closes it
+                state.isOverlapExpanded = false;
+                updateUI();
+                return;
+            }
+            
+            e.stopPropagation();
+            e.preventDefault();
+            
+            state.dragging = 'overlap';
+            state.isOverlapDragging = true;
+            state.overlapDragStart = { x: e.clientX, y: e.clientY };
+            state.overlapDragOffset = { x: e.clientX - state.overlapPos.x, y: e.clientY - state.overlapPos.y };
+            els.overlapView.setPointerCapture(e.pointerId);
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (state.dragging === 'overlap' && state.isOverlapDragging) {
+                e.stopPropagation();
+                let nx = e.clientX - state.overlapDragOffset.x;
+                let ny = e.clientY - state.overlapDragOffset.y;
+                state.overlapPos = { x: nx, y: ny };
+                
+                // Direct update for smoothness
+                els.overlapView.style.left = `${nx}px`;
+                els.overlapView.style.top = `${ny}px`;
+            }
+        });
+
+        els.overlapView.addEventListener('pointerup', (e) => {
+            if (state.dragging === 'overlap') {
+                state.isOverlapDragging = false;
+                state.dragging = null;
+                els.overlapView.releasePointerCapture(e.pointerId);
+
+                if (dist({x: e.clientX, y: e.clientY}, state.overlapDragStart) < 5) {
+                    state.isOverlapExpanded = true;
+                    updateUI();
+                    draw(); // redraw to update grid lines in overlap view
+                }
+            }
+        });
+
+        // Modal Click (Close)
+        els.overlapModal.addEventListener('click', () => {
+            state.isOverlapExpanded = false;
+            updateUI();
+            draw(); // revert overlap view styles
+        });
+
+        // UI Buttons
+        els.btnModeFree.addEventListener('click', () => {
+            state.mode = 'free';
+            state.isOverlapExpanded = false;
+            draw();
+            updateUI();
+        });
+
+        els.btnModeRandom.addEventListener('click', () => {
+            state.mode = 'random';
+            randomizePositions();
+        });
+
+        els.btnNext.addEventListener('click', (e) => {
+            e.stopPropagation();
+            randomizePositions();
+        });
+
+        els.btnFullscreen.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                els.html.requestFullscreen().catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Initialize
+        lucide.createIcons();
+        // Delay initial resize slightly to ensure DOM is ready
+        setTimeout(() => {
+            resize();
+            // Centering balls initially
+            state.ob = { x: state.width / 2, y: state.height * 0.3 };
+            state.cb = { x: state.width / 2, y: state.height * 0.7 };
+            draw();
+        }, 100);
+
+    </script>
+</body>
+</html>
